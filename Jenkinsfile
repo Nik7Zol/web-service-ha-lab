@@ -11,10 +11,6 @@ pipeline {
         stage('Sync code to App Server') {
             steps {
                 script {
-                    // Если ваш код на Jenkins-хосте, можно скопировать его на App-сервер
-                    // Но удобнее, чтобы сам Jenkins брал код из Git-репозитория
-                    // Для простоты мы будем считать, что код уже лежит на App-сервере
-                    // Если хотите копировать из текущего workspace, используйте scp
                     sh """
                         ssh ${APP_USER}@${APP_HOST} "
                             cd ${APP_PATH} && git pull || echo 'no git'
@@ -65,7 +61,7 @@ pipeline {
             }
         }
         success {
-            echo "✅ Deployment successful!"
+            echo "Deployment successful!"
         }
     }
 }
