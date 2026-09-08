@@ -23,15 +23,15 @@ app = FastAPI(title="Test Service", lifespan=lifespan)
 async def root():
     return {"message": "Hello from FastAPI"}
 
-@app.get("/health")
-async def health():
-    return Response(status_code=500)
-
 #@app.get("/health")
 #async def health():
-#    async with app.state.db_pool.acquire() as conn:
-#        result = await conn.fetchval("SELECT 1")
-#    return {"status": "healthy", "db": "ok" if result == 1 else "error"}
+#    return Response(status_code=500)
+
+@app.get("/health")
+async def health():
+    async with app.state.db_pool.acquire() as conn:
+        result = await conn.fetchval("SELECT 1")
+    return {"status": "healthy", "db": "ok" if result == 1 else "error"}
 
 @app.get("/db")
 async def db_check():
