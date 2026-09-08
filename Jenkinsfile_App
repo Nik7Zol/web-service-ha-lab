@@ -1,0 +1,166 @@
+pipeline {
+    agent any
+
+    environment {
+        APP_HOST = '192.168.1.2'
+        APP_USER = 'app'                           // ваше имя пользователя на App-сервере
+        APP_PATH = "/home/${APP_USER}/web-service-ha-lab"
+        SSH_CRED = 'app-server-ssh'                // ID ваших SSH-учётных данных в Jenkins
+        IMAGE_NAME = 'web-service-ha-lab_app'      // имя образа, которое получается при сборке
+    }
+
+    stages {
+        // Подготовка хоста (установка необходимых утилит)
+        stage('Prepare Host Environment') {
+            steps {
+                sshagent([SSH_CRED]) {
+                    sh """
+                        ssh ${APP_USER}@${APP_HOST} "
+                            echo '=== Updating package list ==='
+                            sudo apt update -qq
+
+                            echo '=== Installing / checking required utilities ==='
+
+                            if ! command -v docker &> /dev/null; then
+                                echo 'Docker not found. Installing...'
+                                sudo apt install -y docker.io
+                            else
+                                echo 'Docker already installed.'
+                            fi
+
+                            if ! command -v docker-compose &> /dev/null; then
+                                echo 'Docker Compose not found. Installing...'
+                                sudo apt install -y docker-compose
+                            else
+                                echo 'Docker Compose already installed.'
+                            fi
+
+                            if ! command -v git &> /dev/null; then
+                                echo 'Git not found. Installing...'
+                                sudo apt install -y git
+                            else
+                                echo 'Git already installed.'
+                            fi
+
+                            if ! command -v curl &> /dev/null; then
+                                echo 'Curl not found. Installing...'
+                                sudo apt install -y curl
+                            else
+                                echo 'Curl already installed.'
+                            fi
+
+                            echo '=== Host preparation completed ==='
+                        "
+                    """
+                }
+            }
+        }
+
+        // Копирование кода на App-сервер (через SCP)
+        stage('Sync code to App Server') {
+            steps {
+                sshagent([SSH_CRED]) {
+                    sh """
+                        ssh ${APP_USER}@${APP_HOST} "rm -rf ${APP_PATH} && mkdir -p ${APP_PATH}"
+                        scp -r ${WORKSPACE}/. ${APP_USER}@${APP_HOST}:${APP_PATH}/
+                    """
+                }
+            }
+        }
+
+        // Сборка образа с сохранением предыдущей версии
+        stage('Build and Tag Image') {
+            steps {
+                sshagent([SSH_CRED]) {
+                    sh """
+                        ssh ${APP_USER}@${APP_HOST} "
+                            cd ${APP_PATH}
+
+                            # Если есть образ :latest, сохраняем его как :previous
+                            if docker image inspect ${IMAGE_NAME}:latest >/dev/null 2>&1; then
+                                echo 'Saving current latest as previous'
+                                docker tag ${IMAGE_NAME}:latest ${IMAGE_NAME}:previous
+                            else
+                                echo 'No existing latest image found.'
+                            fi
+
+                            # Собираем новый образ с тегом :latest
+                            echo 'Building new image...'
+                            docker build -t ${IMAGE_NAME}:latest ./app
+                        "
+                    """
+                }
+            }
+        }
+
+        // Деплой через Docker Compose
+        stage('Deploy via Docker Compose') {
+            steps {
+                sshagent([SSH_CRED]) {
+                    sh """
+                        ssh ${APP_USER}@${APP_HOST} "
+                            cd ${APP_PATH}
+                            docker-compose down --remove-orphans
+                            docker-compose up -d
+                        "
+                    """
+                }
+            }
+        }
+
+        // Health Check
+        stage('Health Check') {
+            steps {
+                sshagent([SSH_CRED]) {
+                    sh """
+                        ssh ${APP_USER}@${APP_HOST} "
+                            sleep 10
+                            curl -s -o /dev/null -w '%{http_code}' http://localhost/health | grep 200
+                        "
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        // При сбое – откат к предыдущему образу
+        failure {
+            echo " Health check FAILED! Rolling back to previous version..."
+            sshagent([SSH_CRED]) {
+                sh """
+                    ssh ${APP_USER}@${APP_HOST} "
+                        cd ${APP_PATH}
+
+                        # Проверяем, существует ли образ :previous
+                        if docker image inspect ${IMAGE_NAME}:previous >/dev/null 2>&1; then
+                            echo 'Rolling back to previous image...'
+                            docker tag ${IMAGE_NAME}:previous ${IMAGE_NAME}:latest
+                            docker-compose down --remove-orphans
+                            docker-compose up -d
+                            echo 'Rollback completed.'
+                        else
+                            echo 'No previous image found. Cannot rollback.'
+                            exit 1
+                        fi
+                    "
+                """
+            }
+        }
+
+        success {
+            echo " Deployment successful!"
+            // Удаляем образ :previous, чтобы не занимать место (опционально)
+            sshagent([SSH_CRED]) {
+                sh """
+                    ssh ${APP_USER}@${APP_HOST} "
+                        cd ${APP_PATH}
+                        if docker image inspect ${IMAGE_NAME}:previous >/dev/null 2>&1; then
+                            docker rmi ${IMAGE_NAME}:previous || true
+                        fi
+                    "
+                """
+            }
+        }
+    }
+}
