@@ -3,13 +3,12 @@ pipeline {
 
     environment {
         APP_HOST = '192.168.1.2'
-        APP_USER = 'app'                     // замените на ваше имя пользователя на App-сервере
+        APP_USER = 'app' // Прописывайте совего пользователя
         APP_PATH = "/home/${APP_USER}/web-service-ha-lab"
-        SSH_CRED = 'app-server-ssh'          // ID ваших SSH-учётных данных в Jenkins
+        SSH_CRED = 'app-server-ssh'
     }
 
     stages {
-        // Подготовка хоста: установка Docker, Compose, Git и curl
         stage('Prepare Host Environment') {
             steps {
                 sshagent([SSH_CRED]) {
@@ -48,8 +47,6 @@ pipeline {
                                 echo 'Curl already installed.'
                             fi
 
-                            
-                            sudo usermod -aG docker ${APP_USER}
                             echo '=== Host preparation completed ==='
                         "
                     """
@@ -57,19 +54,17 @@ pipeline {
             }
         }
 
-        // Копирование кода на App-сервер (через SCP)
         stage('Sync code to App Server') {
             steps {
-                script {
+                sshagent([SSH_CRED]) {
                     sh """
-                        ssh -o StrictHostKeyChecking=no ${APP_USER}@${APP_HOST} "rm -rf ${APP_PATH} && mkdir -p ${APP_PATH}"
+                        ssh ${APP_USER}@${APP_HOST} "rm -rf ${APP_PATH} && mkdir -p ${APP_PATH}"
                         scp -r ${WORKSPACE}/* ${APP_USER}@${APP_HOST}:${APP_PATH}/
                     """
                 }
             }
         }
 
-        // Деплой через Docker Compose (без sudo, через sg docker)
         stage('Deploy via Docker Compose') {
             steps {
                 sshagent([SSH_CRED]) {
@@ -83,7 +78,6 @@ pipeline {
             }
         }
 
-        // Проверка здоровья приложения
         stage('Health Check') {
             steps {
                 sshagent([SSH_CRED]) {
@@ -100,7 +94,7 @@ pipeline {
 
     post {
         failure {
-            echo " Health check FAILED! Rolling back to previous version"
+            echo " Health check FAILED! Rolling back to previous version..."
             sshagent([SSH_CRED]) {
                 sh """
                     ssh ${APP_USER}@${APP_HOST} "
