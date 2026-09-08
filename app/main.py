@@ -27,7 +27,7 @@ async def root():
 async def health():
     async with app.state.db_pool.acquire() as conn:
         result = await conn.fetchval("SELECT 1")
-    return {"status": "500", "db": "ok" if result == 1 else "error"}
+    return {"error": "500", "error": "ok" if result == 1 else "error"}
 
 @app.get("/db")
 async def db_check():
