@@ -1,0 +1,73 @@
+pipeline {
+    agent any
+
+    environment {
+        MON_HOST = '172.10.10.2'
+        MON_USER = 'monitoring'
+        MON_PATH = "/home/${MON_USER}/web-service-ha-lab/monitoring"
+        SSH_CRED = 'monitoring-server-ssh'
+    }
+
+    stages {
+        stage('Prepare Host Environment') {
+            steps {
+                sshagent([SSH_CRED]) {
+                    sh """
+                        ssh ${MON_USER}@${MON_HOST} "
+                            sudo apt update -qq
+                            command -v docker         >/dev/null || sudo apt install -y docker.io
+                            command -v docker-compose >/dev/null || sudo apt install -y docker-compose
+                            command -v curl           >/dev/null || sudo apt install -y curl
+                            sudo usermod -aG docker ${MON_USER} || true
+                        "
+                    """
+                }
+            }
+        }
+
+        stage('Sync monitoring configs') {
+            steps {
+                sshagent([SSH_CRED]) {
+                    sh """
+                        ssh ${MON_USER}@${MON_HOST} "rm -rf ${MON_PATH} && mkdir -p ${MON_PATH}"
+                        scp -r ${WORKSPACE}/monitoring/. ${MON_USER}@${MON_HOST}:${MON_PATH}/
+                    """
+                }
+            }
+        }
+
+        stage('Deploy monitoring stack') {
+            steps {
+                sshagent([SSH_CRED]) {
+                    sh """
+                        ssh ${MON_USER}@${MON_HOST} "
+                            cd ${MON_PATH}
+                            sg docker -c 'docker-compose down --remove-orphans && docker-compose up -d'
+                        "
+                    """
+                }
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                sshagent([SSH_CRED]) {
+                    sh """
+                        ssh ${MON_USER}@${MON_HOST} "
+                            sleep 15
+                            echo 'Prometheus:'
+                            curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:9090/-/healthy
+                            echo 'Grafana:'
+                            curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:3000/api/health
+                        "
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success { echo "Monitoring deployed." }
+        failure { echo "Monitoring deployment failed." }
+    }
+}

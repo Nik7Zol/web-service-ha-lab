@@ -1,0 +1,20 @@
+groups:
+  - name: app-alerts
+    rules:
+      - alert: AppHealthDown
+        expr: probe_success{job="blackbox-health"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "App /health недоступен"
+          description: "Приложение на {{ $labels.instance }} не отвечает больше 30 секунд."
+
+      - alert: NodeDown
+        expr: up{job=~"node-exporter-.*"} == 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node Exporter недоступен"
+          description: "Node Exporter на {{ $labels.instance }} не отвечает."
