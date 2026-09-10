@@ -56,7 +56,7 @@ Router имеет NAT интерфейс и два внутренних инте
 На Monitoring аналогично, но в подсети `MonitoringNet`.
 
 Пример готовых интерфейсов
-![Adapters-Router](./images/Adapters-Router.png)
+![Adapters-Router](./images/Adapters-Router_fix1.png)
 
 Благодаря маршрутизации Application и Monitoring смогут обращаться друг к другу через Router.
 
