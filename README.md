@@ -362,7 +362,7 @@ http://172.10.10.2:9090/targets
 
 Открываем `http://172.10.10.2:9093` - пока там пусто.
 
-![Empty Alertmager](./images/Empty_Alertmager.png)
+![Empty Alertmager](./images/Empty_Alertmanager.png)
 
 Правила алертов можно посмотреть в Prometheus:
 
@@ -436,6 +436,61 @@ curl http://localhost:9093/-/healthy
 
 6. Убеждаемся, что алерт закрылся - через ~30 секунд в Alertmanager алерт исчезнет (статус `resolved`).
 
+
+---
+
+## Структура репозитория
+
+```
+web-service-ha-lab/
+├── app/                          # Исходный код приложения
+│   ├── main.py                   # FastAPI-приложение с эндпоинтами /, /health, /db
+│   ├── requirements.txt          # Python-зависимости (FastAPI, uvicorn, asyncpg)
+│   └── Dockerfile                # Инструкция сборки Docker-образа приложения
+│
+├── nginx/                        # Конфигурация reverse-proxy
+│   └── nginx.conf                # Проксирование запросов на FastAPI
+│
+├── monitoring/                   # Стек мониторинга
+│   ├── docker-compose.yml        # Prometheus, Grafana, Alertmanager, Node Exporter, cAdvisor, Blackbox
+│   ├── prometheus/
+│   │   ├── prometheus.yml        # Конфигурация сбора метрик
+│   │   └── alert-rules.yml       # Правила алертов (AppHealthDown, NodeDown)
+│   ├── alertmanager/
+│   │   └── alertmanager.yml      # Конфигурация уведомлений
+│   └── grafana/
+│       └── provisioning/
+│           └── datasources/
+│               └── datasource.yml  # Автоподключение Prometheus к Grafana
+│
+├── Jenkins/                      # Jenkins в Docker
+│   └── docker-compose.yml        # Запуск Jenkins с пробросом портов 8080 и 50000
+│
+├── images/                       # Скриншоты для README
+│
+├── Jenkinsfile_App               # CI/CD pipeline для Application-сервера
+├── Jenkinsfile_Monitoring        # CI/CD pipeline для Monitoring-сервера
+├── docker-compose.yml            # Стек приложения (FastAPI + PostgreSQL + Nginx + экспортёры)
+├── README.md                     # Этот файл
+```
+
+### Краткое описание ключевых файлов
+
+| Файл | Назначение |
+|------|------------|
+| `app/main.py` | Точка входа FastAPI-приложения. Содержит эндпоинты `/`, `/health`, `/db`. |
+| `app/Dockerfile` | Собирает образ на базе `python:3.11-slim`, устанавливает зависимости, запускает uvicorn. |
+| `app/requirements.txt` | Список Python-библиотек: FastAPI, uvicorn, asyncpg, python-dotenv. |
+| `nginx/nginx.conf` | Проксирует запросы с порта 80 на FastAPI, настраивает заголовки. |
+| `docker-compose.yml` | Поднимает 5 контейнеров: `app-postgres`, `app-fastapi`, `app-nginx`, `app-node-exporter`, `app-cadvisor`. |
+| `Jenkinsfile_App` | Pipeline для Application: подготовка хоста, копирование кода, сборка образа, деплой, health check, откат. |
+| `Jenkinsfile_Monitoring` | Pipeline для Monitoring: подготовка хоста, копирование конфигов, запуск стека мониторинга. |
+| `monitoring/docker-compose.yml` | Поднимает 6 контейнеров: Prometheus, Grafana, Alertmanager, Node Exporter, cAdvisor, Blackbox. |
+| `monitoring/prometheus/prometheus.yml` | Описывает, какие таргеты опрашивать. |
+| `monitoring/prometheus/alert-rules.yml` | Правила алертов: `AppHealthDown`, `NodeDown`. |
+| `monitoring/alertmanager/alertmanager.yml` | Настройки маршрутизации уведомлений. |
+| `monitoring/grafana/provisioning/datasources/datasource.yml` | Автоматически подключает Prometheus к Grafana. |
+| `Jenkins/docker-compose.yml` | Запускает Jenkins LTS в контейнере с пробросом портов. |
 
 ---
 
