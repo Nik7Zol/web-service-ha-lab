@@ -1,0 +1,85 @@
+# web-service-ha-lab
+
+
+1. Создание 3 машин, Роутер, Приложение и мониторинг. Роутер соединить с приложением и мониторингом через разные подсети и разные интерфейсы. Но приложение должно достучаться до мониторинга и на оборот
+
+Я создал внутренние сети (appNet) (MonitoringNet). После добавил в машинах на созданные порты адреса, Роутер №1 (172.10.10.1/30), №2 (192.168.1.1/30). Приложение №1 (192.168.1.2/30). Мониторинг №1 (172.10.10.2/30)
+
+
+Если при "ip a" нет нужных адресов.
+Проверим на какой порт, нужно поставить адрес.
+ip link show
+
+sudo nano /etc/netplan/99-hostonly.yaml
+"
+network:
+  version: 2
+  ethernets:
+    enp0s8:
+      dhcp4: false
+      addresses:
+        - 192.168.1.2/30
+"
+sudo netplan apply
+
+
+
+2. Иметь доступ по ссш до всех машин.
+
+sudo apt update && sudo apt install openssh-server
+sudo systemctl enable --now ssh
+
+
+3. Теперь нужно дать доступ между Приложением и мониторингом. 
+echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+sudo iptables -I FORWARD -i enp0s8 -o enp0s9 -j ACCEPT
+sudo iptables -I FORWARD -i enp0s9 -o enp0s8 -j ACCEPT
+
+На Приложении Добавляем маршрут к сети Monitoring через Router
+sudo nano /etc/netplan/99-hostonly.yaml 
+После пункта "      addresses:"
+Нужно добавить:
+      routes:
+        - to: 172.10.10.2/30
+          via: 192.168.1.1
+
+sudo netplan apply
+
+На Мониторинге, нужно сделать тоже самое. Но с другими адресами.
+
+4.
+Настроим Jenkins
+
+Jenkins будет стоять на Router (у него есть доступ в обе подсети).
+
+Он будет по SSH подключаться к Application-server, стягивать ваш репозиторий, собирать образ и поднимать docker-compose.
+
+Если проверка /health упадёт — Jenkins откатит контейнеры к предыдущей стабильной версии.
+
+На Router, создадим ssh ключ, для подключения по ssh без запроса пароля:
+ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa_jenkins
+Переместим ключ на App:
+ssh-copy-id -i ~/.ssh/id_rsa_jenkins.pub app@192.168.1.2
+
+Запустим Jenkins в docker контейнере
+
+"
+docker run -d --name jenkins \
+  -p 8080:8080 \
+  -p 50000:50000 \
+  -v jenkins_home:/var/jenkins_home \
+  -v /home/nikz7ol/.ssh:/var/jenkins_home/.ssh:ro \
+  jenkins/jenkins:lts
+  "
+Посмотрим пароль администратора Jenkins
+docker logs jenkins 2>&1 | grep -A 5 "Jenkins initial setup"
+
+В браузере нужно зайти по http://localhost:8080
+Указать пароль, установить предлагаемые плагины.
+
+
+
+
+
+
